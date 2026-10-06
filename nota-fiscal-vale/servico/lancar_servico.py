@@ -17,7 +17,14 @@ from playwright.sync_api import Page
 
 import funcs
 from api.api_client import STATUS_PULADO
-from browser import ESPERA_MS, PORTAL_URL, concluir_envio, ingressar_com_confirmacao
+from browser import (
+    ESPERA_MS,
+    PORTAL_URL,
+    concluir_envio,
+    conferir_formulario,
+    garantir_anexo,
+    ingressar_com_confirmacao,
+)
 from funcs import DIAS_VENCIMENTO, EnvioIncerto
 from locacao.lancar_locacao import preencher_e_validar
 
@@ -199,12 +206,18 @@ def lancar_uma(context, r, enviar):
     dados["rf"] = r["rf"]
 
     form = context.new_page()
+    # Igual à locação: depois do upload o portal mostra um carregamento por
+    # cima do formulário que pode passar de 30 s (visto na NF 5323).
+    form.set_default_timeout(120_000)
     r["_aba"] = form
     abrir_formulario_nota_servico(form)
     subir_arquivos_nota(form, dados)
     preencher_dados_nota(form, dados)
     preencher_inss(form)
     preencher_rf(form, dados)
+    garantir_anexo(form, "#tax_document_document_xml", dados["caminho_xml"])
+    garantir_anexo(form, "#tax_document_document_pdf", dados["caminho_pdf"])
+    conferir_formulario(form, "Ingressar Nota")
 
     if not enviar:
         return None, "preenchida (não enviada)"

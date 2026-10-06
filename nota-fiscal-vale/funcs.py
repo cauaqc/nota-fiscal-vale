@@ -19,6 +19,7 @@ from api.api_client import (
     NotasValeApiError,
     marcar_nota_processada,
 )
+from browser import registrar_tela_do_erro
 
 DIAS_VENCIMENTO = 30  # regra: vencimento = emissão + 30 dias corridos
 
@@ -93,6 +94,17 @@ def _colunas_da_aba(ws, linhas_cabecalho=5):
     return None
 
 
+def _texto(valor):
+    """
+    Texto da célula para comparar com o FRS/RF/processo. Planilha salva pelo
+    Excel Online/SharePoint guarda inteiro como decimal (1.007567786E9 →
+    1007567786.0); sem isso o '.0' faria o FRS nunca bater.
+    """
+    if isinstance(valor, float) and valor.is_integer():
+        valor = int(valor)
+    return str(valor).strip()
+
+
 def _como_numero(valor):
     texto = str(valor).strip()
     return int(texto) if texto.isdigit() else texto
@@ -122,8 +134,8 @@ def registrar_na_planilha(caminho_planilha, frs, rf, numero_nf, processo):
         achadas += [
             (ws, r, col_chamado, col_nf)
             for r in range(linha_cabecalho + 1, ws.max_row + 1)
-            if str(ws.cell(r, col_frs).value).strip() == str(frs)
-            and str(ws.cell(r, col_rf).value).strip() == str(rf)
+            if _texto(ws.cell(r, col_frs).value) == str(frs)
+            and _texto(ws.cell(r, col_rf).value) == str(rf)
         ]
     if len(achadas) != 1:
         raise LookupError(f"FRS {frs} + RF {rf} casam com {len(achadas)} linha(s) da planilha (esperado 1)")
@@ -131,7 +143,7 @@ def registrar_na_planilha(caminho_planilha, frs, rf, numero_nf, processo):
     onde = f"{ws.title}!{linha}"
 
     atual = ws.cell(linha, col_chamado).value
-    if atual not in (None, "") and str(atual).strip() != str(processo):
+    if atual not in (None, "") and _texto(atual) != str(processo):
         raise ValueError(f"{onde} já tem N° CHAMADO = {atual} (não sobrescrevo)")
 
     ws.cell(linha, col_chamado).value = _como_numero(processo)
@@ -189,6 +201,8 @@ def processar_notas(context, notas, kind, lancar_uma, enviar, planilha):
             status_api, texto = lancar_uma(context, r, enviar)
         except EnvioIncerto as e:
             print(f"   ❗ falha DEPOIS do clique em 'Ingressar': {e}")
+            if r.get("_aba"):
+                registrar_tela_do_erro(r["_aba"], numero)
             resumo.append((numero, kind, "VERIFICAR NO PORTAL (envio incerto, API não avisada)"))
             continue
         except Exception as e:  # noqa: BLE001

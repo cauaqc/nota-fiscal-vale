@@ -18,7 +18,14 @@ from playwright.sync_api import Page
 
 import funcs
 from api.api_client import STATUS_PULADO
-from browser import ESPERA_MS, PORTAL_URL, concluir_envio, ingressar_com_confirmacao
+from browser import (
+    ESPERA_MS,
+    PORTAL_URL,
+    concluir_envio,
+    conferir_formulario,
+    garantir_anexo,
+    ingressar_com_confirmacao,
+)
 from funcs import DadosInvalidos, EnvioIncerto
 
 CNPJ_EMISSOR = "04188944000195"
@@ -486,6 +493,8 @@ def lancar_uma(context, r, enviar):
     preencher_tributos(form, dados)
     preencher_pedido_compra(form, dados)
     preencher_metodo_pagamento(form)
+    garantir_anexo(form, "#tax_document_document_pdf", dados["caminho_pdf"])
+    conferir_formulario(form, "Ingressar Documento")
 
     if not enviar:
         return None, "preenchida (não enviada)"

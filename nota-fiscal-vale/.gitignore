@@ -70,3 +70,6 @@ nfs_teste/
 # Notas fiscais baixadas da API (dados sensíveis, não versionar)
 entrada/
 entrada_local/
+
+# Prints de tela de envios que não confirmaram
+erros/

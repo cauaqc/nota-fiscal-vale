@@ -57,14 +57,17 @@ VALE_API_BASE_URL=...
 VALE_API_TOKEN=...
 ```
 
-A planilha Billing a preencher (colunas N° CHAMADO e NF) fica, por padrão, na
-pasta do projeto (`Billing Agosto 2026 (Cópia).xlsx`); use `--planilha`
-para apontar outra.
+A planilha Billing a preencher (colunas N° CHAMADO e NF) é, por padrão, a do
+**mês de consumo** (mês anterior ao atual) em `M:\BILLING VALE`: o nome do
+arquivo precisa ter o mês e o ano (ex.: `Billing Vale Setembro- 2026.xlsx`).
+O robô procura o FRS + RF da nota em todas as abas que têm as colunas FRS, RF,
+N° CHAMADO e NF. Use `--planilha` para apontar outro arquivo. Rode com a
+planilha fechada no Excel.
 
 ## Uso
 
 ```
-python main.py                                  # modo teste, 2 primeiras notas
+python main.py                                  # modo teste, até 50 notas
 python main.py --limite 5 --tipo locacao
 python main.py --numero 4702 5866               # teste: uma NF e uma FAT
 python main.py --numero 5866 --enviar           # envio real
@@ -74,10 +77,10 @@ python main.py --headless --enviar              # sem janela (servidor/agendamen
 | Opção        | Descrição                                                        |
 |--------------|------------------------------------------------------------------|
 | `--pasta`    | pasta onde salvar os arquivos baixados (padrão `entrada/`)       |
-| `--limite`   | máximo de notas por execução (padrão 2)                          |
+| `--limite`   | máximo de notas por execução (padrão 50)                         |
 | `--numero`   | processa só estas notas (`numero_nf`)                            |
 | `--tipo`     | `todos` (padrão), `locacao` ou `servico`                         |
-| `--planilha` | planilha Billing a preencher                                     |
+| `--planilha` | planilha Billing a preencher (padrão: mês anterior em `M:\BILLING VALE`) |
 | `--enviar`   | envia de verdade e avisa a API                                   |
 | `--headless` | roda sem abrir janela e encerra sozinho no final                 |
 

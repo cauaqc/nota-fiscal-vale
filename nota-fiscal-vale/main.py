@@ -17,7 +17,7 @@ COM --enviar: envia de verdade. Se der erro DEPOIS do clique em "Ingressar"
 PORTAL" para você conferir à mão.
 
 Uso:
-    python main.py                       # teste, 2 primeiras notas
+    python main.py                       # teste, até 50 notas
     python main.py --limite 5 --tipo locacao
     python main.py --numero 5866 --enviar
     python main.py --numero 4702 5866    # teste: uma NF e uma FAT
@@ -31,10 +31,11 @@ from playwright.sync_api import sync_playwright
 
 from api.api_client import NotasValeApiError, baixar_notas_pendentes
 from browser import login
+from funcs import localizar_planilha_do_mes
 from locacao.lancar_locacao import lancar_locacao
 from servico.lancar_servico import lancar_servico
 
-PLANILHA_PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Billing Agosto 2026 (Cópia).xlsx")
+PASTA_BILLING = r"M:\BILLING VALE"  # planilhas Billing; usa a do mês de consumo
 PASTA_PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entrada")
 
 
@@ -62,10 +63,13 @@ def classificar(resultados, numero, tipo):
 def main():
     parser = argparse.ArgumentParser(description="Lança notas de locação e serviço na Vale.")
     parser.add_argument("--pasta", default=PASTA_PADRAO, help="pasta onde salvar os arquivos")
-    parser.add_argument("--limite", type=int, default=2, help="máximo de notas (padrão 2)")
+    parser.add_argument("--limite", type=int, default=50, help="máximo de notas (padrão 50)")
     parser.add_argument("--numero", nargs="+", help="processar só estas notas (numero_nf)")
     parser.add_argument("--tipo", choices=["todos", "locacao", "servico"], default="todos")
-    parser.add_argument("--planilha", default=PLANILHA_PADRAO, help="planilha Billing a preencher (N° CHAMADO e NF)")
+    parser.add_argument(
+        "--planilha",
+        help=f"planilha Billing a preencher (padrão: a do mês anterior em {PASTA_BILLING})",
+    )
     parser.add_argument("--enviar", action="store_true", help="envia de verdade e avisa a API")
     parser.add_argument(
         "--headless",
@@ -73,6 +77,15 @@ def main():
         help="roda sem abrir janela e encerra sozinho no final (para servidor/agendamento)",
     )
     args = parser.parse_args()
+
+    # Acha a planilha antes de lançar qualquer nota: sem ela o envio
+    # aconteceria mas o N° CHAMADO não seria anotado.
+    if not args.planilha:
+        try:
+            args.planilha = localizar_planilha_do_mes(PASTA_BILLING)
+        except OSError as e:
+            sys.exit(f"Planilha Billing não encontrada: {e}")
+    print(f"Planilha: {args.planilha}")
 
     try:
         resultados = baixar_notas_pendentes(args.pasta)

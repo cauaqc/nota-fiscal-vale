@@ -4,7 +4,10 @@ Funções comuns aos fluxos de locação e serviço: planilha de controle
 PDF da locação está em locacao/lancar_locacao.py.
 """
 
+import os
 import re
+import unicodedata
+from datetime import date
 
 import openpyxl
 import pdfplumber
@@ -29,11 +32,65 @@ def extrair_frs_rf_servico(caminho_pdf):
     return (frs.group(1) if frs else None, rf.group(1) if rf else None)
 
 
-def _coluna(cabecalhos, predicado, nome):
+MESES = [
+    "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+]
+
+
+def _sem_acento(texto):
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+
+
+def localizar_planilha_do_mes(pasta, hoje=None):
+    """
+    Acha em `pasta` a planilha Billing do mês de CONSUMO, que é o mês anterior
+    ao atual (as notas emitidas em outubro são do consumo de setembro). O nome
+    do arquivo precisa ter o nome do mês e o ano, ex.: 'Billing Vale Setembro- 2026.xlsx'.
+    Levanta FileNotFoundError se não achar exatamente um arquivo.
+    """
+    hoje = hoje or date.today()
+    mes = hoje.month - 1 or 12
+    ano = hoje.year if hoje.month > 1 else hoje.year - 1
+    nome_mes = MESES[mes - 1]
+
+    candidatos = [
+        nome
+        for nome in os.listdir(pasta)
+        if nome.lower().endswith(".xlsx")
+        and not nome.startswith("~$")  # arquivo de trava do Excel aberto
+        and nome_mes in _sem_acento(nome)
+        and str(ano) in nome
+    ]
+    if len(candidatos) != 1:
+        raise FileNotFoundError(
+            f"esperava 1 planilha de {nome_mes}/{ano} em {pasta}, achei {len(candidatos)}: {candidatos}"
+        )
+    return os.path.join(pasta, candidatos[0])
+
+
+def _coluna(cabecalhos, predicado):
     achadas = [i for i, c in enumerate(cabecalhos, start=1) if c and predicado(str(c).upper())]
-    if len(achadas) != 1:
-        raise LookupError(f"coluna '{nome}' não encontrada de forma única na planilha")
-    return achadas[0]
+    return achadas[0] if len(achadas) == 1 else None
+
+
+def _colunas_da_aba(ws, linhas_cabecalho=5):
+    """
+    Procura o cabeçalho nas primeiras linhas da aba (na Billing real ele fica
+    na linha 2; a 1 tem os SUBTOTAL). Retorna (linha_cabecalho, frs, rf,
+    chamado, nf) ou None se a aba não tiver as 4 colunas.
+    """
+    for linha in range(1, min(linhas_cabecalho, ws.max_row) + 1):
+        cabecalhos = [c.value for c in ws[linha]]
+        colunas = (
+            _coluna(cabecalhos, lambda t: "(FRS)" in t),
+            _coluna(cabecalhos, lambda t: "(RF)" in t),
+            _coluna(cabecalhos, lambda t: "CHAMADO" in t),
+            _coluna(cabecalhos, lambda t: t.strip() == "NF"),
+        )
+        if all(colunas):
+            return (linha, *colunas)
+    return None
 
 
 def _como_numero(valor):
@@ -43,9 +100,10 @@ def _como_numero(valor):
 
 def registrar_na_planilha(caminho_planilha, frs, rf, numero_nf, processo):
     """
-    Acha a linha cujo 'Nº FOLHA DE REGISTRO (FRS)' e 'Nº RELATÓRIO DE FATURAMENTO
-    (RF)' batem com os da nota e preenche 'N° CHAMADO' (nº do processo na Vale) e
-    'NF'. Retorna o número da linha.
+    Acha, em todas as abas que têm as colunas 'Nº FOLHA DE REGISTRO (FRS)',
+    'Nº RELATÓRIO DE FATURAMENTO (RF)', 'N° CHAMADO' e 'NF', a linha cujo FRS e
+    RF batem com os da nota e preenche 'N° CHAMADO' (nº do processo na Vale) e
+    'NF'. Retorna 'aba!linha'.
 
     Falha (LookupError / ValueError) sem escrever nada se: o FRS/RF não existir
     ou existir em mais de uma linha, ou se o 'N° CHAMADO' da linha já estiver
@@ -55,26 +113,26 @@ def registrar_na_planilha(caminho_planilha, frs, rf, numero_nf, processo):
         raise LookupError("FRS/RF da nota não encontrados")
 
     wb = openpyxl.load_workbook(caminho_planilha)
-    ws = wb.active
-    cabecalhos = [c.value for c in ws[1]]
-    col_frs = _coluna(cabecalhos, lambda t: "(FRS)" in t, "FRS")
-    col_rf = _coluna(cabecalhos, lambda t: "(RF)" in t, "RF")
-    col_chamado = _coluna(cabecalhos, lambda t: "CHAMADO" in t, "N° CHAMADO")
-    col_nf = _coluna(cabecalhos, lambda t: t.strip() == "NF", "NF")
-
-    linhas = [
-        r
-        for r in range(2, ws.max_row + 1)
-        if str(ws.cell(r, col_frs).value).strip() == str(frs)
-        and str(ws.cell(r, col_rf).value).strip() == str(rf)
-    ]
-    if len(linhas) != 1:
-        raise LookupError(f"FRS {frs} + RF {rf} casam com {len(linhas)} linha(s) da planilha (esperado 1)")
-    linha = linhas[0]
+    achadas = []
+    for ws in wb.worksheets:
+        colunas = _colunas_da_aba(ws)
+        if not colunas:
+            continue
+        linha_cabecalho, col_frs, col_rf, col_chamado, col_nf = colunas
+        achadas += [
+            (ws, r, col_chamado, col_nf)
+            for r in range(linha_cabecalho + 1, ws.max_row + 1)
+            if str(ws.cell(r, col_frs).value).strip() == str(frs)
+            and str(ws.cell(r, col_rf).value).strip() == str(rf)
+        ]
+    if len(achadas) != 1:
+        raise LookupError(f"FRS {frs} + RF {rf} casam com {len(achadas)} linha(s) da planilha (esperado 1)")
+    ws, linha, col_chamado, col_nf = achadas[0]
+    onde = f"{ws.title}!{linha}"
 
     atual = ws.cell(linha, col_chamado).value
     if atual not in (None, "") and str(atual).strip() != str(processo):
-        raise ValueError(f"linha {linha} já tem N° CHAMADO = {atual} (não sobrescrevo)")
+        raise ValueError(f"{onde} já tem N° CHAMADO = {atual} (não sobrescrevo)")
 
     ws.cell(linha, col_chamado).value = _como_numero(processo)
     ws.cell(linha, col_nf).value = _como_numero(numero_nf)
@@ -83,7 +141,7 @@ def registrar_na_planilha(caminho_planilha, frs, rf, numero_nf, processo):
     ws.cell(linha, col_chamado).number_format = "0"
     ws.cell(linha, col_nf).number_format = "0"
     wb.save(caminho_planilha)
-    return linha
+    return onde
 
 
 class EnvioIncerto(Exception):
@@ -97,10 +155,10 @@ class DadosInvalidos(Exception):
 def anotar_na_planilha(r, caminho_planilha):
     """Preenche N° CHAMADO e NF na planilha. Falha aqui não desfaz o envio, só avisa."""
     try:
-        linha = registrar_na_planilha(
+        onde = registrar_na_planilha(
             caminho_planilha, r.get("frs"), r.get("rf"), r["numero_nf"], r["processo_vale"]
         )
-        print(f"   📊 planilha: linha {linha} ← N° CHAMADO {r['processo_vale']}, NF {r['numero_nf']}")
+        print(f"   📊 planilha: {onde} ← N° CHAMADO {r['processo_vale']}, NF {r['numero_nf']}")
     except Exception as e:  # noqa: BLE001
         print(f"   ⚠️  NÃO preenchi a planilha (NF {r['numero_nf']}, processo #{r['processo_vale']}): {e}")
 

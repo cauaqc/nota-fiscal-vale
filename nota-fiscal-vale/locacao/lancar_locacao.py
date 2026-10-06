@@ -115,10 +115,10 @@ def extrair_rfs(texto: str) -> str | None:
     return encontrados[0] if encontrados else None
 
 def extrair_rf(texto: str) -> str | None:
-    # No PDF e no formulário a etiqueta é "RF" (Relatório de Faturamento)
-    # — o regex original do nfsvale (extrair_fr) procurava "FR" invertido
-    # e nunca batia com esse layout de documento.
-    padrao = r"RF:?\s*(\d+)"
+    # RF = Relatório de Faturamento. Na observação do PDF ele vem como
+    # "FR:6203231507" ou "RF:..."; o \b e o dígito obrigatório evitam casar
+    # com "FRS:" e com o cabeçalho "RF FATURA Nº".
+    padrao = r"\b(?:FR|RF)\s*:?\s*(\d+)"
     encontrados = re.findall(padrao, texto)
     return encontrados[0] if encontrados else None
 
@@ -185,14 +185,17 @@ def abrir_formulario_outro_documento(page: Page):
 
 
 def preencher_tipo_documento(form):
-    campo_tipo_documento = form.locator(
-        "xpath=/html/body/main/div/div/div/div/form/div/div/div/div[1]/div/div[2]/div[4]/span/span[1]/span"
-    )
-    campo_tipo_documento.click()
+    # Depois do upload do PDF o portal mostra um carregamento por cima do
+    # formulário, que às vezes passa de 30 s: o click() espera o campo ficar
+    # livre, então damos mais tempo em vez de falhar. Campo e opção são
+    # achados pelo id do Select2 e pelo texto (o XPath absoluto e a posição
+    # do item na lista quebravam com qualquer mudança no portal).
+    form.wait_for_load_state("networkidle", timeout=120_000)
+    form.locator('[aria-labelledby="select2-tax_document_model-container"]').click(timeout=120_000)
     print("Abriu o dropdown 'Tipo de Documento'")
     form.wait_for_timeout(ESPERA_MS)
 
-    form.locator("xpath=/html/body/span/span/span[2]/ul/li[4]").click()
+    form.locator(".select2-container--open .select2-results__option", has_text="Aluguel").click()
     print("Selecionou 'Aluguel' em 'Tipo de Documento'")
     form.wait_for_timeout(ESPERA_MS)
 
@@ -246,6 +249,11 @@ def preencher_tomador(form, dados):
     # esse id via aria-labelledby.
     # Por isso não dá pra usar .fill() direto: precisa clicar pra abrir,
     # digitar na caixa de busca que aparece, e confirmar com Enter.
+    # Igual à Alíquota do INSS no serviço: o Select2 só é criado quando a
+    # página rola até o <select> original — numa janela pequena ele ainda
+    # não existe e o clique espera para sempre.
+    form.locator("#tax_document_customer_identification_number").scroll_into_view_if_needed()
+    form.wait_for_timeout(1000)
     form.locator(
         '[aria-labelledby="select2-tax_document_customer_identification_number-container"]'
     ).click()
@@ -464,6 +472,10 @@ def lancar_uma(context, r, enviar):
     r["frs"], r["rf"] = dados["frs"], dados["fr"]
 
     form = context.new_page()
+    # O formulário recarrega partes da tela (upload do PDF, cidade do
+    # fornecedor...) com um carregamento por cima que pode passar de 30 s;
+    # cada ação espera o campo ficar livre por até 2 min antes de falhar.
+    form.set_default_timeout(120_000)
     r["_aba"] = form
     abrir_formulario_outro_documento(form)
     subir_pdf_documento(form, dados)

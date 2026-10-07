@@ -99,3 +99,20 @@ python main.py --headless --enviar              # sem janela (servidor/agendamen
 - Qualquer outra é ignorada e listada no resumo.
 
 A locação é processada antes do serviço.
+
+## Execução automática (agendada)
+
+O robô roda sozinho no **2º, 5º e 8º dia útil do mês** (segunda a sexta,
+sem feriados nacionais), sem janela e mesmo sem ninguém logado:
+
+- `rodar_agendado.bat` — chamado pelo Agendador de Tarefas todo dia útil às
+  08:00; roda `main.py --headless --enviar --dias-uteis 2 5 8`. Nos outros
+  dias o robô encerra sem fazer nada.
+- A saída de cada execução fica em `logs/execucao_AAAA-MM-DD_HHMM.log`; se um
+  envio não confirmar, o print da tela fica em `erros/`.
+- Para registrar a tarefa (uma vez só; pede usuário e senha do Windows):
+  `powershell -ExecutionPolicy Bypass -File .\agendar_tarefa.ps1`
+
+A planilha é lida pelo caminho de rede `\192.168.0.233\mxtholding\BILLING VALE`
+(o mesmo `M:\BILLING VALE`), porque a letra `M:` não existe para a tarefa
+quando ninguém está logado.

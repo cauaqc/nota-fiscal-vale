@@ -7,3 +7,4 @@ pillow==12.0.0
 pytesseract==0.3.13
 python-dotenv
 openpyxl==3.1.5
+holidays

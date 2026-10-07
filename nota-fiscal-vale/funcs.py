@@ -9,6 +9,7 @@ import re
 import unicodedata
 from datetime import date
 
+import holidays
 import openpyxl
 import pdfplumber
 
@@ -41,6 +42,23 @@ MESES = [
 
 def _sem_acento(texto):
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+
+
+def dia_util_do_mes(hoje=None):
+    """
+    Qual dia útil do mês é `hoje` (1 = primeiro dia útil), contando segunda a
+    sexta e descontando os feriados nacionais. Retorna None se hoje não for
+    dia útil (fim de semana ou feriado).
+    """
+    hoje = hoje or date.today()
+    feriados = holidays.Brazil(years=hoje.year)
+
+    def util(d):
+        return d.weekday() < 5 and d not in feriados
+
+    if not util(hoje):
+        return None
+    return sum(1 for dia in range(1, hoje.day + 1) if util(hoje.replace(day=dia)))
 
 
 def localizar_planilha_do_mes(pasta, hoje=None):
@@ -222,7 +240,12 @@ def processar_notas(context, notas, kind, lancar_uma, enviar, planilha):
         # a aba fica aberta para você conferir.
         aba = r.pop("_aba", None)
         if aba and enviar and status_api in (STATUS_OK, STATUS_DUPLICADO) and r.get("processo_vale"):
-            aba.close()
+            # run_before_unload=True não espera a aba terminar de fechar: o
+            # close() normal já travou o robô entre uma nota e outra (NF 5322).
+            try:
+                aba.close(run_before_unload=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"   ⚠️  não consegui fechar a aba (segue mesmo assim): {str(e).splitlines()[0]}")
 
         resumo.append((numero, kind, texto))
     return resumo
